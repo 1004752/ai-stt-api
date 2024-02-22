@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI, BackgroundTasks
 from openai import OpenAI
 from dotenv import load_dotenv
-from database import db
+from db_connection import db
 
 # .env 설정 불러오기
 load_dotenv()
