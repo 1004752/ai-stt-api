@@ -1,10 +1,9 @@
 import os
 import logging
-import sys
 import pymysql
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Request
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -60,6 +59,19 @@ class Database:
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
+
+@app.post("/api/upload/{voice_file_name}")
+async def upload_file(request: Request, voice_file_name: str):
+    # 파일 저장 경로 설정. 실제 사용 시 보다 안전한 파일명 생성 로직을 고려해야 함
+    audio_file_path = os.path.join(voice_folder, voice_file_name)
+
+    # 스트림에서 청크 단위로 데이터를 읽어 파일에 쓰기
+    async with open(audio_file_path, "wb") as file:
+        async for chunk in request.stream():
+            await file.write(chunk)
+
+    return {"message": "File uploaded successfully", "file_path": audio_file_path}
 
 
 # 파일 업로드 및 STT 처리를 위한 엔드포인트
