@@ -1,8 +1,14 @@
 import os
+import sys
 import logging
 from fastapi import FastAPI, BackgroundTasks
 from openai import OpenAI
 from dotenv import load_dotenv
+
+current_path = os.path.abspath(__file__)
+current_dir = os.path.dirname(current_path)
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
 from database import db
 
 # .env 설정 불러오기
@@ -81,10 +87,11 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
             model=chat_model,
             messages=[
                 {"role": "system", "content": "You are a language expert."},
-                {"role": "user", "content": "Extract the key words from the following context and tell me only those key words."
-                                            "Don't make up anything else, don't add anything."
-                                            "If there is a typo, please correct only the typo."
-                                            f"context: {transcript}"},
+                {"role": "user",
+                 "content": "Extract the key words from the following context and tell me only those key words."
+                            "Don't make up anything else, don't add anything."
+                            "If there is a typo, please correct only the typo."
+                            f"context: {transcript}"},
             ]
         )
 
