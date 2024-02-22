@@ -56,6 +56,9 @@ class Database:
         return self.pool.connection()
 
 
+db = Database(mysql_ip, mysql_port, mysql_id, mysql_passwd, mysql_db)
+
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
