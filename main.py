@@ -1,5 +1,4 @@
 import os
-import sys
 import logging
 from fastapi import FastAPI, BackgroundTasks
 from openai import OpenAI
