@@ -1,8 +1,11 @@
 import os
 import logging
+import sys
 from fastapi import FastAPI, BackgroundTasks
 from openai import OpenAI
 from dotenv import load_dotenv
+
+sys.path.insert(0, os.getenv("APP_PATH"))
 from db_connection import db
 
 # .env 설정 불러오기
