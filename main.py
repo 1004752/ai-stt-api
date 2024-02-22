@@ -4,11 +4,6 @@ import logging
 from fastapi import FastAPI, BackgroundTasks
 from openai import OpenAI
 from dotenv import load_dotenv
-
-current_path = os.path.abspath(__file__)
-current_dir = os.path.dirname(current_path)
-parent_dir = os.path.dirname(current_dir)
-sys.path.append(parent_dir)
 from database import db
 
 # .env 설정 불러오기
