@@ -4,6 +4,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
 from fastapi import FastAPI, BackgroundTasks, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -14,6 +15,15 @@ load_dotenv()
 
 # FastAPI 실행
 app = FastAPI()
+
+# CORS 미들웨어 추가
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 허용할 출처 목록, 모든 출처를 허용하려면 ["*"] 사용
+    allow_credentials=True,
+    allow_methods=["*"],  # 허용할 HTTP 메소드, 예: ["GET", "POST"]
+    allow_headers=["*"],  # 클라이언트가 보낼 수 있는 헤더, 인증 헤더 등을 포함시키려면 명시적으로 추가
+)
 
 # OpenAI API 키 설정
 OpenAI.api_key = os.getenv("OPENAI_API_KEY")
