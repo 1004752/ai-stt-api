@@ -1,13 +1,14 @@
 import streamlit as st
 import requests
 import os
+from io import BytesIO
 from dotenv import load_dotenv
-
 
 # .env 설정 불러오기
 load_dotenv()
 
 app_url = os.getenv("APP_URL")
+voice_folder = os.getenv("VOICE_FOLDER")
 
 # Streamlit 페이지 설정
 st.title('파일 업로드 테스트')
@@ -30,3 +31,28 @@ if st.button('업로드'):
             st.write(response.text)
     else:
         st.warning('파일을 선택해주세요.')
+
+
+# 파일 다운로드를 위한 함수 정의
+def download_file(file_path):
+    with open(file_path, 'rb') as f:
+        bytes_io = BytesIO(f.read())
+    return bytes_io
+
+
+# '/code/data' 폴더 내의 파일 리스트를 불러옴
+files = os.listdir(voice_folder)
+
+# 파일 선택 위젯
+selected_file = st.selectbox('Select a file to download:', files)
+
+# 파일 다운로드 링크 제공
+if st.button('Download'):
+    file_path = os.path.join(voice_folder, selected_file)
+    bytes_io = download_file(file_path)
+
+    # Streamlit을 사용하여 파일 다운로드 링크 생성
+    st.download_button(label="Download File",
+                       data=bytes_io,
+                       file_name=selected_file,
+                       mime='application/octet-stream')
