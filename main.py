@@ -180,6 +180,8 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
             get_ai_stt(audio_file_path, voice_file_name, retry_count)
     except Exception as e:
         connection.rollback()
+        cursor.close()
+        connection.close()
         logger.error(f"Error speech to text: {e}, trying count: {retry_count}")
         retry_count += 1
         get_ai_stt(audio_file_path, voice_file_name, retry_count)
