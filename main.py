@@ -1,6 +1,8 @@
 import os
 import logging
 import pymysql
+import requests
+import json
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
 from fastapi import FastAPI, BackgroundTasks, File, UploadFile
@@ -136,22 +138,9 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
             )
         logger.info(f"Transcription successful for file: {voice_file_name}")
 
-        response = client.chat.completions.create(
-            model=chat_model,
-            messages=[
-                {"role": "system", "content": "You are a language expert."},
-                {"role": "user",
-                 "content": "Extract the key words from the following context and tell me only those key words."
-                            "Don't make up anything else, don't add anything."
-                            "If there is a typo, please correct only the typo."
-                            f"context: {transcript}"},
-            ]
-        )
+        message = send_query(transcript)
 
-        if response.choices:
-            keyword = response.choices[0].message.content
-            logger.info(f"Get keyword successful: {keyword}")
-
+        if message:
             cursor.execute("""
                 insert into ai_stt(
                     voice_file_name, 
@@ -169,7 +158,7 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
                 transcript,
                 1,
                 "",
-                keyword,
+                message,
                 "client",
                 "client",
             ))
@@ -231,3 +220,119 @@ def get_ai_keyword(voice_file_name: str):
             "type": "search",
             "text": "DB조회 시 에러가 발생했습니다."
         }
+
+
+################################################
+
+def current_weather_info(city: str):
+    '''
+    도시 파라미터를 입려받아 현재 날씨정보를 반환합니다
+    :param city: 도시
+    '''
+    api_key = "cae9c532caea0c33c93547a70879e455"
+
+    url = f'https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}'
+    response = requests.get(url)
+    data = response.json()
+
+    # print(city, data)
+
+    weather = data['weather'][0]['description']
+    temp = data['main']['temp'] - 273.15  # K to C
+    humidity = data['main']['humidity']
+    return recommand_clothes(weather, temp, humidity)
+
+
+def recommand_clothes(weather, temp, humidity):
+    prompt=f'''다음 날씨에 어울리는 옷차림을 추천해줘
+    날씨: {weather}
+    온도: {temp}
+    습도: {humidity}
+    '''
+
+    messages = [
+        {"role": "system", "content": "너는 친절한 어시스턴트야"},
+        {"role": "user", "content": prompt}
+    ]
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        temperature=0.9,
+        max_tokens=1000,
+    )
+
+    answer = response.choices[0].message.content.strip()
+    return answer
+
+
+def search_media_keywords(sentence: str):
+    '''
+    방송 매체에 관련한 질문에 대답하기
+    :param sentence: 방송 매체에 관련한 질문
+    '''
+    response = client.chat.completions.create(
+        model=chat_model,
+        messages=[
+            {"role": "system", "content": "You are a language expert."},
+            {"role": "user",
+             "content": "Extract the key words from the following context and tell me only those key words."
+                        "Please separate the extracted keywords with commas"
+                        "Don't make up anything else, don't add anything."
+                        "If there is a typo, please correct only the typo."
+                        f"context: {sentence}"},
+        ]
+    )
+
+    print(sentence)
+
+    keyword = None
+    if response.choices:
+        keyword = response.choices[0].message.content
+        logger.info(f"Extract keyword successful: {keyword}")
+
+    return keyword
+
+
+def send_query(prompt):
+    # Step 1: finstate_summary 함수 준비
+    messages = [{"role": "user", "content": prompt}]
+
+    functions = [
+        {'name': 'search_media_keywords',
+         'description': '방송 매체에 관련한 질문에 대답하기\n:param sentence: 방송 매체에 관련한 질문',
+         'parameters': {'type': 'object',
+                        'properties': {'sentence': {'type': 'string'}},
+                        'required': ['sentence']}},
+        {'name': 'current_weather_info',
+         'description': '도시 파라미터를 입려받아 현재 날씨정보를 반환합니다\n:param city: 도시',
+         'parameters': {'type': 'object',
+                        'properties': {'city': {'type': 'string'}},
+                        'required': ['city']}},
+    ]
+
+    # Step 2: 프롬프트와 함께 functions 목록과 호출여부를 GPT에 전달
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo-0613",
+        messages=messages,
+        functions=functions,   # 함수
+        function_call="auto",  # auto=기본값(functions 지정시)
+    )
+
+    response_message = response.choices[0].message
+    print(response_message.function_call)
+    if not response_message.function_call: # 함수호출이 아니라면
+        messages.append(response_message.content)
+        return response_message.content
+
+    # Step 3: GPT가 어떤 함수를 호출을 원하는지 알아내어 지정한 함수를 호출
+    available_functions = {
+        "search_media_keywords": search_media_keywords,
+        "current_weather_info": current_weather_info
+    }
+    function_name = response_message.function_call.name
+    arguments = response_message.function_call.arguments
+    func = available_functions[function_name]
+    args = json.loads(arguments)
+    func_response = func(**args)
+
+    return func_response
