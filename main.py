@@ -11,7 +11,6 @@ from starlette.responses import JSONResponse
 from openai import OpenAI
 from dotenv import load_dotenv
 
-
 # .env 설정 불러오기
 load_dotenv()
 
@@ -101,7 +100,7 @@ async def transcribe_audio(background_tasks: BackgroundTasks, voice_file_name: s
         logger.error(f"File not found: {audio_file_path}")
         return {
             "result": "fail",
-            "type": "search",
+            "type": "error",
             "text": "음성 파일 찾기에 실패했습니다."
         }
 
@@ -123,7 +122,7 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
     if retry_count > 5:
         return {
             "result": "fail",
-            "type": "search",
+            "type": "error",
             "text": "음성 변환에 실패하였습니다."
         }
 
@@ -138,26 +137,24 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0
             )
         logger.info(f"Transcription successful for file: {voice_file_name}")
 
-        message = send_query(transcript)
+        message, answer_type = send_query(transcript)
 
-        if message:
+        if answer_type > 0:
             cursor.execute("""
                 insert into ai_stt(
                     voice_file_name, 
                     client_stt_question,
                     answer_type,
                     ai_chat_answer,
-                    ai_chat_keyword,
                     insert_user,
                     update_user 
                 ) values (
-                    %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s
                 )
             """, (
                 voice_file_name,
                 transcript,
-                1,
-                "",
+                answer_type,
                 message,
                 "client",
                 "client",
@@ -188,8 +185,12 @@ def get_ai_keyword(voice_file_name: str):
             select
                 voice_file_name,
                 client_stt_question,
-                IF(answer_type = 1, 'search', 'text')                as answer_type,
-                IF(answer_type = 1, ai_chat_keyword, ai_chat_answer) as ai_chat_answer,
+                case 
+                    when answer_type = 1 then 'btv-search'
+                    when answer_type = 2 then 'weather' 
+                    else 'ai-answer' 
+                end answer_type,
+                ai_chat_answer,
                 insert_user,
                 insert_timestamp,
                 update_user,
@@ -210,14 +211,14 @@ def get_ai_keyword(voice_file_name: str):
         else:
             return {
                 "result": "fail",
-                "type": "search",
+                "type": "error",
                 "text": "아직 답변이 작성되지 않았습니다."
             }
     except Exception as e:
         logger.error(f"Error get keyword: {str(e)}")
         return {
             "result": "fail",
-            "type": "search",
+            "type": "error",
             "text": "DB조회 시 에러가 발생했습니다."
         }
 
@@ -244,10 +245,11 @@ def current_weather_info(city: str):
 
 
 def recommand_clothes(weather, temp, humidity):
-    prompt=f'''다음 날씨에 어울리는 옷차림을 추천해줘
-    날씨: {weather}
-    온도: {temp}
-    습도: {humidity}
+    prompt = f'''다음 날씨에 어울리는 옷차림을 추천해줘.
+    \n날씨: {weather}
+    \n온도: {temp}
+    \n습도: {humidity}
+    \n50자 이내로 답변해줘.
     '''
 
     messages = [
@@ -283,8 +285,6 @@ def search_media_keywords(sentence: str):
         ]
     )
 
-    print(sentence)
-
     keyword = None
     if response.choices:
         keyword = response.choices[0].message.content
@@ -294,45 +294,55 @@ def search_media_keywords(sentence: str):
 
 
 def send_query(prompt):
-    # Step 1: finstate_summary 함수 준비
-    messages = [{"role": "user", "content": prompt}]
+    try:
+        # Step 1: finstate_summary 함수 준비
+        messages = [{"role": "user", "content": f"{prompt}"}]
 
-    functions = [
-        {'name': 'search_media_keywords',
-         'description': '방송 매체에 관련한 질문에 대답하기\n:param sentence: 방송 매체에 관련한 질문',
-         'parameters': {'type': 'object',
-                        'properties': {'sentence': {'type': 'string'}},
-                        'required': ['sentence']}},
-        {'name': 'current_weather_info',
-         'description': '도시 파라미터를 입려받아 현재 날씨정보를 반환합니다\n:param city: 도시',
-         'parameters': {'type': 'object',
-                        'properties': {'city': {'type': 'string'}},
-                        'required': ['city']}},
-    ]
+        functions = [
+            {'name': 'search_media_keywords',
+             'description': '방송 매체에 관련한 질문에 대답하기\n:param sentence: 방송 매체에 관련한 질문',
+             'parameters': {'type': 'object',
+                            'properties': {'sentence': {'type': 'string'}},
+                            'required': ['sentence']}},
+            {'name': 'current_weather_info',
+             'description': '도시 파라미터를 입려받아 현재 날씨정보를 반환합니다\n:param city: 도시',
+             'parameters': {'type': 'object',
+                            'properties': {'city': {'type': 'string'}},
+                            'required': ['city']}},
+        ]
 
-    # Step 2: 프롬프트와 함께 functions 목록과 호출여부를 GPT에 전달
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo-0613",
-        messages=messages,
-        functions=functions,   # 함수
-        function_call="auto",  # auto=기본값(functions 지정시)
-    )
+        # Step 2: 프롬프트와 함께 functions 목록과 호출여부를 GPT에 전달
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo-0613",
+            messages=messages,
+            functions=functions,  # 함수
+            function_call="auto",  # auto=기본값(functions 지정시)
+        )
 
-    response_message = response.choices[0].message
-    print(response_message.function_call)
-    if not response_message.function_call: # 함수호출이 아니라면
-        messages.append(response_message.content)
-        return response_message.content
+        response_message = response.choices[0].message
 
-    # Step 3: GPT가 어떤 함수를 호출을 원하는지 알아내어 지정한 함수를 호출
-    available_functions = {
-        "search_media_keywords": search_media_keywords,
-        "current_weather_info": current_weather_info
-    }
-    function_name = response_message.function_call.name
-    arguments = response_message.function_call.arguments
-    func = available_functions[function_name]
-    args = json.loads(arguments)
-    func_response = func(**args)
+        answer_type = 4  # 4(default) type: 기타
 
-    return func_response
+        if not response_message.function_call:  # 함수호출이 아니라면
+            messages.append(response_message.content)
+            return response_message.content, answer_type
+
+        # Step 3: GPT가 어떤 함수를 호출을 원하는지 알아내어 지정한 함수를 호출
+        available_functions = {
+            "search_media_keywords": search_media_keywords,
+            "current_weather_info": current_weather_info
+        }
+        function_name = response_message.function_call.name
+        arguments = response_message.function_call.arguments
+        func = available_functions[function_name]
+        args = json.loads(arguments)
+        func_response = func(**args)
+
+        if function_name == "search_media_keywords":    # 1 type: BTV 검색
+            answer_type = 1
+        elif function_name == "current_weather_info":   # 2 type: 날씨
+            answer_type = 2
+
+        return func_response, answer_type
+    except Exception as e:
+        return e, -1
