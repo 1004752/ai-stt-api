@@ -53,7 +53,7 @@ class Database:
     def __init__(self, host, port, user, password, db):
         self.pool = PooledDB(
             creator=pymysql,
-            maxconnections=5,
+            maxconnections=100,
             mincached=2,
             host=host,
             port=int(port),
