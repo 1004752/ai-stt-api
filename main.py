@@ -245,14 +245,14 @@ def current_weather_info(city: str):
 
 
 def recommand_clothes(weather, temp, humidity):
-    prompt = f'''다음 정보로 날씨에 대한 설명을 50자 이내로 답변해줘.
+    prompt = f'''다음 정보로 날씨에 대한 설명을 한글 100자 이내로 답변해줘.
     \n날씨: {weather}
     \n온도: {temp}
     \n습도: {humidity}
     '''
 
     messages = [
-        {"role": "system", "content": "너는 친절한 어시스턴트야"},
+        {"role": "system", "content": "너는 전문 기상 캐스터야."},
         {"role": "user", "content": prompt}
     ]
     response = client.chat.completions.create(
