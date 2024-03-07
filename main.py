@@ -105,7 +105,7 @@ async def transcribe_audio(background_tasks: BackgroundTasks, voice_file_name: s
         }
 
     # 백그라운드로 음성 파일 STT 작업 시작
-    background_tasks.add_task(get_ai_stt, audio_file_path, voice_file_name, 0)
+    background_tasks.add_task(get_ai_stt, audio_file_path, voice_file_name)
 
     return {
         "TYPE": "request",
@@ -118,62 +118,62 @@ async def transcribe_audio(background_tasks: BackgroundTasks, voice_file_name: s
     }
 
 
-def get_ai_stt(audio_file_path: str, voice_file_name: str, retry_count: int == 0):
-    if retry_count > 5:
-        return {
-            "result": "fail",
-            "type": "error",
-            "text": "음성 변환에 실패하였습니다."
-        }
+def get_ai_stt(audio_file_path: str, voice_file_name: str):
+    retry_count = 0
+    max_retries = 5
 
-    connection = db.get_connection()
-    cursor = connection.cursor()
-    try:
-        with open(audio_file_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model=stt_model,
-                file=audio_file,
-                response_format="text"
-            )
-        logger.info(f"Transcription successful for file: {voice_file_name}")
-
-        message, answer_type = send_query(transcript)
-
-        if answer_type > 0:
-            cursor.execute("""
-                insert into ai_stt(
-                    voice_file_name, 
-                    client_stt_question,
-                    answer_type,
-                    ai_chat_answer,
-                    insert_user,
-                    update_user 
-                ) values (
-                    %s, %s, %s, %s, %s, %s
+    while retry_count <= max_retries:
+        connection = db.get_connection()
+        cursor = connection.cursor()
+        try:
+            with open(audio_file_path, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model=stt_model,
+                    file=audio_file,
+                    response_format="text"
                 )
-            """, (
-                voice_file_name,
-                transcript,
-                answer_type,
-                message,
-                "client",
-                "client",
-            ))
-            connection.commit()
-        else:
-            logger.error(f"Error speech to text, trying count: {retry_count}")
+            logger.info(f"Transcription successful for file: {voice_file_name}")
+
+            message, answer_type = send_query(transcript)
+
+            if answer_type > 0:
+                cursor.execute("""
+                    insert into ai_stt(
+                        voice_file_name, 
+                        client_stt_question,
+                        answer_type,
+                        ai_chat_answer,
+                        insert_user,
+                        update_user 
+                    ) values (
+                        %s, %s, %s, %s, %s, %s
+                    )
+                """, (
+                    voice_file_name,
+                    transcript,
+                    answer_type,
+                    message,
+                    "client",
+                    "client",
+                ))
+                connection.commit()
+                retry_count += 10
+            else:
+                logger.error(f"Error speech to text, trying count: {retry_count}")
+                retry_count += 1
+        except Exception as e:
+            connection.rollback()
+            logger.error(f"Error speech to text: {e}, trying count: {retry_count}")
             retry_count += 1
-            get_ai_stt(audio_file_path, voice_file_name, retry_count)
-    except Exception as e:
-        connection.rollback()
-        cursor.close()
-        connection.close()
-        logger.error(f"Error speech to text: {e}, trying count: {retry_count}")
-        retry_count += 1
-        get_ai_stt(audio_file_path, voice_file_name, retry_count)
-    finally:
-        cursor.close()
-        connection.close()
+            if retry_count > max_retries:
+                logger.error("Maximum retry attempts reached. Giving up.")
+                break
+        finally:
+            cursor.close()
+            connection.close()
+
+        if retry_count <= max_retries:
+            break
 
 
 @app.get("/api/ai/result/{voice_file_name}")
@@ -245,11 +245,10 @@ def current_weather_info(city: str):
 
 
 def recommand_clothes(weather, temp, humidity):
-    prompt = f'''다음 날씨에 어울리는 옷차림을 추천해줘.
+    prompt = f'''다음 정보로 날씨에 대한 설명을 50자 이내로 답변해줘.
     \n날씨: {weather}
     \n온도: {temp}
     \n습도: {humidity}
-    \n50자 이내로 답변해줘.
     '''
 
     messages = [

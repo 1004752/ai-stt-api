@@ -41,7 +41,9 @@ def download_file(file_path):
 
 
 # '/code/data' 폴더 내의 파일 리스트를 불러옴
-files = os.listdir(voice_folder)
+files_with_mtime = [(file, os.path.getmtime(os.path.join(voice_folder, file))) for file in os.listdir(voice_folder)]
+files_sorted = sorted(files_with_mtime, key=lambda x: x[1], reverse=True)
+files = [file[0] for file in files_sorted]
 
 # 파일 선택 위젯
 selected_file = st.selectbox('Select a file to download:', files)
