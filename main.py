@@ -275,7 +275,7 @@ def set_tts_response_status(tts_id: int):
 # 내부 처리 함수
 ################################################
 
-def get_ai_tts(input_type: int, text: str):
+def get_ai_tts(input_type: str, text: str):
     connection = db.get_connection()
     cursor = connection.cursor()
     try:
