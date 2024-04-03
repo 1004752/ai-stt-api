@@ -200,6 +200,7 @@ def get_tts_result():
     try:
         cursor.execute("""
             select
+                id,
                 client_tts_text,
                 voice_file_url,
                 input_type,
@@ -216,11 +217,13 @@ def get_tts_result():
         result = cursor.fetchone()
 
         if result:
+            tts_id = result .get("id")
             input_type = result.get("input_type")
             client_tts_text = result.get("client_tts_text")
             voice_file_url = result.get("voice_file_url")
             return {
                 "result": "success",
+                "tts_id": tts_id,
                 "type": input_type,
                 "text": client_tts_text,
                 "voice": voice_file_url
