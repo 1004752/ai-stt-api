@@ -3,6 +3,7 @@ import logging
 import pymysql
 import requests
 import json
+from pydantic import BaseModel
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
 from fastapi import FastAPI, BackgroundTasks, File, UploadFile
@@ -48,6 +49,9 @@ mysql_id = os.getenv("MYSQL_ID")
 mysql_passwd = os.getenv("MYSQL_PASSWD")
 mysql_db = os.getenv("MYSQL_DB")
 
+## Eden AI API 키 설정
+edenai_api_key = os.getenv("EDENAI_API_KEY")
+
 
 class Database:
     def __init__(self, host, port, user, password, db):
@@ -70,6 +74,10 @@ class Database:
 
 db = Database(mysql_ip, mysql_port, mysql_id, mysql_passwd, mysql_db)
 
+
+################################################
+# API Endpoint
+################################################
 
 @app.get("/")
 async def root():
@@ -94,7 +102,7 @@ async def upload_file(file: UploadFile = File(...)):
 
 # 파일 업로드 및 STT 처리를 위한 엔드포인트
 @app.get("/api/ai/stt/{voice_file_name}")
-async def transcribe_audio(background_tasks: BackgroundTasks, voice_file_name: str):
+async def speech_to_text(background_tasks: BackgroundTasks, voice_file_name: str):
     audio_file_path = os.path.join(voice_folder, voice_file_name)
     if not os.path.exists(audio_file_path):
         logger.error(f"File not found: {audio_file_path}")
@@ -116,6 +124,214 @@ async def transcribe_audio(background_tasks: BackgroundTasks, voice_file_name: s
             "key": voice_file_name
         }
     }
+
+
+@app.get("/api/ai/result/{voice_file_name}")
+def get_ai_keyword(voice_file_name: str):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            select
+                voice_file_name,
+                client_stt_question,
+                case 
+                    when answer_type = 1 then 'btv-search'
+                    when answer_type = 2 then 'weather' 
+                    else 'ai-answer' 
+                end answer_type,
+                ai_chat_answer,
+                insert_user,
+                insert_timestamp,
+                update_user,
+                update_timestamp
+            from ai_stt
+            where voice_file_name = %s
+        """, voice_file_name)
+        result = cursor.fetchone()
+
+        if result:
+            answer_type = result.get("answer_type")
+            ai_chat_answer = result.get("ai_chat_answer")
+            return {
+                "result": "success",
+                "type": answer_type,
+                "text": ai_chat_answer
+            }
+        else:
+            return {
+                "result": "fail",
+                "type": "error",
+                "text": "아직 답변이 작성되지 않았습니다."
+            }
+    except Exception as e:
+        logger.error(f"Error get keyword: {str(e)}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB조회 시 에러가 발생했습니다."
+        }
+
+
+class TTSRequest(BaseModel):
+    input_type: str
+    text: str
+
+
+@app.post("/api/tts")
+async def text_to_speech(background_tasks: BackgroundTasks, request: TTSRequest):
+    input_type = request.input_type
+    text = request.text
+
+    # 백그라운드로 음성 파일 TTS 작업 시작
+    background_tasks.add_task(get_ai_tts, input_type, text)
+
+    return {
+        "result": "success",
+        "type": input_type,
+        "text": text
+    }
+
+
+@app.get("/api/tts/result")
+def get_tts_result():
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            select
+                client_tts_text,
+                voice_file_url,
+                input_type,
+                response_status,
+                insert_user,
+                insert_timestamp,
+                update_user,
+                update_timestamp
+            from ai_tts
+            where response_status = 1
+            order by input_type, id desc
+            limit 1
+        """)
+        result = cursor.fetchone()
+
+        if result:
+            input_type = result.get("input_type")
+            client_tts_text = result.get("client_tts_text")
+            voice_file_url = result.get("voice_file_url")
+            return {
+                "result": "success",
+                "type": input_type,
+                "text": client_tts_text,
+                "voice": voice_file_url
+            }
+        else:
+            return {
+                "result": "fail",
+                "type": "error",
+                "text": "아직 음성이 생성되지 않았습니다."
+            }
+    except Exception as e:
+        logger.error(f"Error get tts: {str(e)}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB조회 시 에러가 발생했습니다."
+        }
+
+
+@app.get("/api/tts/response/status/{tts_id}")
+def set_tts_response_status(tts_id: int):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            update ai_tts set response_status = 2 
+            where id = %s
+        """, tts_id)
+        connection.commit()
+
+        return {
+            "result": "success",
+            "text": "수신완료 상태로 변경되었습니다.",
+        }
+    except Exception as e:
+        connection.rollback()
+        logger.error(f"Error Update DB: {e}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB저장 시 에러가 발생했습니다."
+        }
+    finally:
+        cursor.close()
+        connection.close()
+
+
+################################################
+# 내부 처리 함수
+################################################
+
+def get_ai_tts(input_type: int, text: str):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        url = "https://api.edenai.run/v2/audio/text_to_speech"
+
+        payload = {
+            "response_as_dict": True,
+            "attributes_as_list": False,
+            "show_original_response": False,
+            "pitch": 50,
+            "volume": 100,
+            "sampling_rate": 0,
+            "providers": "openai",
+            "text": text,
+            "language": "ko",
+            "option": "FEMALE"
+        }
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {edenai_api_key}"
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+
+        data = json.loads(response.text)
+
+        if data and data.get("openai") and data.get("openai").get("audio_resource_url"):
+            voice_file_link = data.get("openai").get("audio_resource_url")
+
+            cursor.execute("""
+                insert into ai_tts(
+                    client_tts_text,
+                    voice_file_url,
+                    input_type,
+                    response_status,
+                    insert_user,
+                    update_user 
+                ) values (
+                    %s, %s, %s, %s, %s, %s
+                )
+            """, (
+                text,
+                voice_file_link,
+                input_type,
+                1,
+                "client",
+                "client",
+            ))
+            connection.commit()
+            logger.info("tts complete!")
+        else:
+            logger.error("Error text to speech: tts api error")
+    except Exception as e:
+        connection.rollback()
+        logger.error(f"Error text to speech: {e}")
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def get_ai_stt(audio_file_path: str, voice_file_name: str):
@@ -175,55 +391,6 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str):
         if retry_count <= max_retries:
             break
 
-
-@app.get("/api/ai/result/{voice_file_name}")
-def get_ai_keyword(voice_file_name: str):
-    connection = db.get_connection()
-    cursor = connection.cursor()
-    try:
-        cursor.execute("""
-            select
-                voice_file_name,
-                client_stt_question,
-                case 
-                    when answer_type = 1 then 'btv-search'
-                    when answer_type = 2 then 'weather' 
-                    else 'ai-answer' 
-                end answer_type,
-                ai_chat_answer,
-                insert_user,
-                insert_timestamp,
-                update_user,
-                update_timestamp
-            from ai_stt
-            where voice_file_name = %s
-        """, voice_file_name)
-        result = cursor.fetchone()
-
-        if result:
-            answer_type = result.get("answer_type")
-            ai_chat_answer = result.get("ai_chat_answer")
-            return {
-                "result": "success",
-                "type": answer_type,
-                "text": ai_chat_answer
-            }
-        else:
-            return {
-                "result": "fail",
-                "type": "error",
-                "text": "아직 답변이 작성되지 않았습니다."
-            }
-    except Exception as e:
-        logger.error(f"Error get keyword: {str(e)}")
-        return {
-            "result": "fail",
-            "type": "error",
-            "text": "DB조회 시 에러가 발생했습니다."
-        }
-
-
-################################################
 
 def current_weather_info(city: str):
     '''
@@ -337,11 +504,84 @@ def send_query(prompt):
         args = json.loads(arguments)
         func_response = func(**args)
 
-        if function_name == "search_media_keywords":    # 1 type: BTV 검색
+        if function_name == "search_media_keywords":  # 1 type: BTV 검색
             answer_type = 1
-        elif function_name == "current_weather_info":   # 2 type: 날씨
+        elif function_name == "current_weather_info":  # 2 type: 날씨
             answer_type = 2
 
         return func_response, answer_type
     except Exception as e:
         return e, -1
+
+
+################################################
+# vision 크롤링
+################################################
+
+def login(session):
+    login_url = "http://skstoa-vision-931293320.ap-northeast-2.elb.amazonaws.com:19090/auth/login?user_id=jungsik.yeo%40sk.com&user_pw=test%21q2w&force=true"
+
+    # 로그인 요청 보내기
+    response = session.get(login_url)
+
+    # 로그인 성공 여부 확인
+    if response.status_code == 200:
+        json_data = response.json()
+        if json_data.get("authResult") == "SUCCESS":
+            token = json_data.get("data", {}).get("token")
+            if token:
+                session.headers.update({"X-Auth-Token": f"{token}"})
+                return True, session
+            else:
+                print("토큰이 없습니다.")
+                return False, session
+        else:
+            print("로그인 실패:", json_data.get("message"))
+            return False, session
+    else:
+        print("로그인 요청 실패:", response.status_code)
+        return False, session
+
+
+@app.get("/vision/main/getHomeUv")
+async def get_home_uv(tape_code, bd_btime):
+    new_session = requests.Session()
+    _, session = login(new_session)
+
+    url = f"http://vision.skstoa.com/vision/main/getHomeUv?bdBtime={bd_btime}&tapeCode={tape_code}"
+    response = session.get(url)
+
+    home_uv = {}
+    if response.status_code == 200:
+        home_uv = response.json()
+        print(home_uv)
+    return home_uv
+
+
+@app.get("/vision/main/getPgmDetailInfo")
+def get_pgm_detail_info(tape_code, bd_btime):
+    new_session = requests.Session()
+    _, session = login(new_session)
+
+    url = f"http://vision.skstoa.com/vision/main/getPgmDetailInfo?bdBtime={bd_btime}&tapeCode={tape_code}"
+    response = session.get(url)
+
+    pgm_detail_list = {}
+    if response.status_code == 200:
+        pgm_detail_list = response.json()
+        print(pgm_detail_list)
+    return pgm_detail_list
+
+
+@app.get("/vision/main/getWatchingAvg")
+def get_watching_avg(tape_code, d_time, e_time):
+    new_session = requests.Session()
+    _, session = login(new_session)
+
+    url = f"http://vision.skstoa.com/vision/main/getWatchingAvg?tapeCode={tape_code}&dTime={d_time}&eTime={e_time}"
+    response = session.get(url)
+
+    watching_avg = {}
+    if response.status_code == 200:
+        watching_avg = response.json()
+    return watching_avg
