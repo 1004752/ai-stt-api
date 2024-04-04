@@ -285,10 +285,10 @@ def get_ai_tts(input_type: str, text: str):
             "response_as_dict": True,
             "attributes_as_list": False,
             "show_original_response": False,
-            "pitch": 50,
+            "pitch": 0,
             "volume": 100,
             "sampling_rate": 0,
-            "providers": "openai",
+            "providers": "google",
             "text": text,
             "language": "ko",
             "option": "FEMALE"
