@@ -285,6 +285,7 @@ def get_ai_tts(input_type: str, text: str):
             "response_as_dict": True,
             "attributes_as_list": False,
             "show_original_response": False,
+            "rate": 0,
             "pitch": 0,
             "volume": 100,
             "sampling_rate": 0,
