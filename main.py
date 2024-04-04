@@ -304,7 +304,7 @@ def get_ai_tts(input_type: str, text: str):
 
         data = json.loads(response.text)
 
-        if data and data.get("google") and data.get("openai").get("audio_resource_url"):
+        if data and data.get("google") and data.get("google").get("audio_resource_url"):
             voice_file_link = data.get("google").get("audio_resource_url")
 
             cursor.execute("""
