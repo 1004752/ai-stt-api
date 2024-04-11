@@ -155,7 +155,12 @@ def get_ai_keyword(voice_file_name: str):
 
         if result:
             answer_type = result.get("answer_type")
+            client_stt_question = result.get("client_stt_question")
             ai_chat_answer = result.get("ai_chat_answer")
+
+            # BTV 검색인 경우 TTS 문구 수정
+            if answer_type == "btv-search":
+                ai_chat_answer = f"'{client_stt_question}'의 검색 결과입니다."
 
             cursor.execute("""
                 select
