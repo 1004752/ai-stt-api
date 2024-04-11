@@ -49,8 +49,11 @@ mysql_id = os.getenv("MYSQL_ID")
 mysql_passwd = os.getenv("MYSQL_PASSWD")
 mysql_db = os.getenv("MYSQL_DB")
 
-## Eden AI API 키 설정
+# Eden AI API 키 설정
 edenai_api_key = os.getenv("EDENAI_API_KEY")
+
+# 서버 URL
+app_url = os.getenv("APP_URL")
 
 
 class Database:
@@ -153,11 +156,45 @@ def get_ai_keyword(voice_file_name: str):
         if result:
             answer_type = result.get("answer_type")
             ai_chat_answer = result.get("ai_chat_answer")
-            return {
-                "result": "success",
-                "type": answer_type,
-                "text": ai_chat_answer
-            }
+
+            cursor.execute("""
+                select
+                    id,
+                    client_tts_text,
+                    voice_file_url,
+                    input_type,
+                    response_status,
+                    insert_user,
+                    insert_timestamp,
+                    update_user,
+                    update_timestamp
+                from ai_tts
+                where response_status = 1
+                and input_type = 3
+                and client_tts_text = %s
+                order by input_type, id desc
+                limit 1 
+            """, ai_chat_answer)
+            tts_result = cursor.fetchone()
+
+            if tts_result:
+                id = tts_result.get("id")
+                voice = tts_result.get("voice_file_url")
+
+                set_tts_response_status(int(id))
+
+                return {
+                    "result": "success",
+                    "type": answer_type,
+                    "text": ai_chat_answer,
+                    "voice": voice
+                }
+            else:
+                return {
+                    "result": "fail",
+                    "type": "error",
+                    "text": "아직 답변이 작성되지 않았습니다."
+                }
         else:
             return {
                 "result": "fail",
@@ -376,8 +413,30 @@ def get_ai_stt(audio_file_path: str, voice_file_name: str):
                     "client",
                     "client",
                 ))
-                connection.commit()
-                retry_count += 10
+
+                # BTV 검색인 경우 TTS 문구 수정
+                if answer_type == 1:
+                    message = f"'{transcript}'의 검색 결과입니다."
+
+                # TTS 생성 API 호출
+                tts_url = f"{app_url}/api/tts"
+                payload = {
+                    "input_type": "3",
+                    "text": message
+                }
+                headers = {
+                    "accept": "application/json",
+                    "content-type": "application/json",
+                }
+                response = requests.post(tts_url, json=payload, headers=headers)
+                tts_result = json.loads(response.text)
+                if tts_result.get("result") == "success":
+                    logger.info("text to speech API Call Complete.")
+                    connection.commit()
+                    retry_count += 10
+                else:
+                    logger.error(f"Error text to speech, trying count: {retry_count}")
+                    retry_count += 1
             else:
                 logger.error(f"Error speech to text, trying count: {retry_count}")
                 retry_count += 1
