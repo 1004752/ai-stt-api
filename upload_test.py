@@ -14,7 +14,7 @@ voice_folder = os.getenv("VOICE_FOLDER")
 st.title('파일 업로드 테스트')
 
 # 파일 업로더 위젯
-uploaded_file = st.file_uploader("파일을 선택해주세요", type=[".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm"])
+uploaded_file = st.file_uploader("파일을 선택해주세요", type=[".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm", "json"])
 
 # 업로드 버튼
 if st.button('업로드'):
