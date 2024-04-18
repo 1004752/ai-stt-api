@@ -313,6 +313,21 @@ def set_tts_response_status(tts_id: int):
         connection.close()
 
 
+@app.get("/api/ai/sports/{file_type}/{channel_id}")
+def get_ai_sports(file_type: str, channel_id: int):
+    text_file_path = os.path.join(voice_folder, f"{channel_id}_{file_type}.json")
+    if not os.path.exists(text_file_path):
+        logger.error(f"File not found: {text_file_path}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "경기 요약 파일 찾기에 실패했습니다."
+        }
+
+    with open(text_file_path, 'r') as f:
+        match_json = json.load(f)
+        return match_json
+
 ################################################
 # 내부 처리 함수
 ################################################
