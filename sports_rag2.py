@@ -115,10 +115,10 @@ examples = [
     }}"""},
 ]
 
-with open('978_realtime.json', 'r') as f:
+with open('980_realtime.json', 'r') as f:
     match_json = json.load(f)
 
-with open('978_player.json', 'r') as f:
+with open('980_player.json', 'r') as f:
     player_json = json.load(f)
 
 home_info = f"""
@@ -146,7 +146,7 @@ away_info = away_info.replace("{", "{{") \
 
 example_selector = SemanticSimilarityExampleSelector.from_examples(
     examples,
-    OpenAIEmbeddings(),
+    OpenAIEmbeddings(model="text-embedding-3-small"),
     Chroma,
     k=1
 )
@@ -187,19 +187,47 @@ for i, time_line in enumerate(match_json.get("timeline")):
                 new_time_line = json.loads(answer)
                 print(new_time_line)
 
-                new_type = new_time_line.get("team")
+                new_type = new_time_line.get("team", "none")
                 new_in = new_time_line.get("in")
                 new_out = new_time_line.get("out")
                 new_time = new_time_line.get("time", "0")
                 new_desc = new_time_line.get("desc")
 
-                # if int(new_time.replace("'", "").replace("none", "0")) > 0:
-                #     match_json.get("timeline")[i].get("type").update(new_type)
-                #     if match_json.get("timeline")[i].get("state") == "change" and new_in and new_out:
-                #         match_json.get("timeline")[i].get("in").update(new_in)
-                #         match_json.get("timeline")[i].get("out").update(new_out)
-                #
-
+                if int(new_time.replace("'", "").replace("none", "0")) > 0:
+                    match_json.get("timeline")[i]["type"] = new_type
+                    if match_json.get("timeline")[i].get("state") == "change" and new_in and new_out:
+                        if not new_in or not new_out:
+                            continue
+                        match_json.get("timeline")[i]["in"] = new_in
+                        match_json.get("timeline")[i]["out"] = new_out
                 break
             except:
                 continue
+
+
+match_realtime_data = match_json
+
+match_highlight_data = {
+    "home_team": match_json.get("home_team"),
+    "away_team": match_json.get("away_team"),
+}
+
+highlight_time_lines = []
+for time_line in match_json.get("timeline"):
+    if time_line.get("state") in ["goal", "owngoal", "change", "card1", "card2", "quarter_finish1"]:
+        highlight_time_lines.append(time_line)
+match_highlight_data["timeline"] = highlight_time_lines
+
+# 실시간 경기 저장
+file_name = f"980_realtime.json"
+file_path = os.path.join(os.getcwd(), file_name)
+with open(file_path, "w", encoding="utf-8") as file:
+    file.write(json.dumps(match_realtime_data, ensure_ascii=False, indent=2))
+print(f"본경기 파일이 저장되었습니다: {file_path}")
+
+# 하이라이트 경기 저장
+file_name = f"980_highlight.json"
+file_path = os.path.join(os.getcwd(), file_name)
+with open(file_path, "w") as file:
+    file.write(json.dumps(match_highlight_data, ensure_ascii=False, indent=2))
+print(f"하이라이트 파일이 저장되었습니다: {file_path}")
