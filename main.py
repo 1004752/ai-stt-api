@@ -79,7 +79,7 @@ db = Database(mysql_ip, mysql_port, mysql_id, mysql_passwd, mysql_db)
 
 
 ################################################
-# API Endpoint
+# AI 캐릭터 API Endpoint
 ################################################
 
 @app.get("/")
@@ -327,6 +327,120 @@ def get_ai_sports(file_type: str, channel_id: int):
     with open(text_file_path, 'r') as f:
         match_json = json.load(f)
         return match_json
+
+
+################################################
+# VR Golf API Endpoint
+################################################
+@app.get("/api/vr/golf/{course_id}")
+def get_golf_course_hole(course_id: int):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+             select course_id,
+                    course_name,
+                    total_hole_numbers,
+                    total_distance,
+                    course_level,
+                    green_level,
+                    address,
+                    homepage,
+                    tel_no
+             from vr_golf_course
+             where course_id = %s
+        """, course_id)
+        result = cursor.fetchone()
+
+        if result:
+            course_name = result.get("course_name"),
+            total_hole_numbers = result.get("total_hole_numbers"),
+            total_distance = result.get("total_distance"),
+            course_level = result.get("course_level"),
+            green_level = result.get("green_level"),
+            address = result.get("address"),
+            homepage = result.get("homepage"),
+            tel_no = result.get("tel_no"),
+
+            return {
+                "result": "success",
+                "course_id": course_id,
+                "course_name": course_name,
+                "total_hole_numbers": f"{total_hole_numbers}홀",
+                "total_distance": f"{total_distance}m",
+                "course_level": course_level,
+                "green_level": green_level,
+                "address": address,
+                "homepage": homepage,
+                "tel_no": tel_no,
+            }
+        else:
+            return {
+                "result": "fail",
+                "type": "error",
+                "text": "골프장 정보가 없습니다."
+            }
+    except Exception as e:
+        logger.error(f"Error get tts: {str(e)}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB조회 시 에러가 발생했습니다."
+        }
+
+
+@app.get("/api/vr/golf/{course_id}/{hole_id}")
+def get_golf_course_hole(course_id: int, hole_id: int):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+             select back_tee,
+                    champ_tee,
+                    front_tee,
+                    senior_tee,
+                    lady_tee,
+                    map_image_link,
+                    map_video_link
+             from vr_golf_course_hole
+             where course_id = %s
+             and hole_id = %s
+        """, (course_id, hole_id))
+        result = cursor.fetchone()
+
+        if result:
+            back_tee = result.get("back_tee")
+            champ_tee = result.get("champ_tee")
+            front_tee = result.get("front_tee")
+            senior_tee = result.get("senior_tee")
+            lady_tee = result.get("lady_tee")
+            map_image_link = result.get("map_image_link")
+            map_video_link = result.get("map_video_link")
+
+            return {
+                "result": "success",
+                "back_tee": f"{back_tee}m",
+                "champ_tee": f"{champ_tee}m",
+                "front_tee": f"{front_tee}m",
+                "senior_tee": f"{senior_tee}m",
+                "lady_tee": f"{lady_tee}m",
+                "map_image_link": map_image_link,
+                "map_video_link": map_video_link,
+            }
+        else:
+            return {
+                "result": "fail",
+                "type": "error",
+                "text": "홀 상세정보가 없습니다."
+            }
+    except Exception as e:
+        logger.error(f"Error get tts: {str(e)}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB조회 시 에러가 발생했습니다."
+        }
+
 
 ################################################
 # 내부 처리 함수
