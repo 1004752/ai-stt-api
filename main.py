@@ -432,7 +432,7 @@ def get_golf_course_hole(course_id: int, hole_id: int):
                 "lady_tee": f"{lady_tee}m",
                 "map_image_link": map_image_link,
                 "map_video_link": map_video_link,
-                "voice_file_name": f"{os.getenv('APP_URL')}/static/{voice_file_name}",
+                "voice_link": f"{os.getenv('APP_URL')}/static/{voice_file_name}",
             }
         else:
             return {
