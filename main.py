@@ -3,13 +3,23 @@ import logging
 import pymysql
 import requests
 import json
+import time
+from fastapi import FastAPI, Request, BackgroundTasks, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
-from fastapi import FastAPI, BackgroundTasks, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+from threading import Thread
 from openai import OpenAI
+from langchain_core.prompts.chat import ChatPromptTemplate, HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatOllama
+from langchain_core.messages import HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+
 from dotenv import load_dotenv
 
 # .env 설정 불러오기
@@ -17,6 +27,7 @@ load_dotenv()
 
 # FastAPI 실행
 app = FastAPI()
+
 
 # CORS 미들웨어 추가
 app.add_middleware(
@@ -600,6 +611,7 @@ def send_query(prompt):
 ################################################
 # vision 크롤링
 ################################################
+data = {}
 
 def login(session):
     login_url = "http://skstoa-vision-931293320.ap-northeast-2.elb.amazonaws.com:19090/auth/login?user_id=jungsik.yeo%40sk.com&user_pw=test%21q2w&force=true"
@@ -626,41 +638,53 @@ def login(session):
         return False, session
 
 
-@app.get("/vision/main/getHomeUv")
-async def get_home_uv(tape_code, bd_btime):
-    new_session = requests.Session()
-    _, session = login(new_session)
+def get_channel_list(session):
+    url = "http://skstoa-vision-931293320.ap-northeast-2.elb.amazonaws.com:19090/common/channelList"
+    response = session.get(url)
 
+    channel_list = []
+    if response.status_code == 200:
+        json_data = response.json()
+        if json_data.get("message") == "SUCCESS":
+            channel_list = json_data.get("data")
+    return channel_list
+
+
+def get_pgm_list(session, channel_code):
+    url = f"http://skstoa-vision-931293320.ap-northeast-2.elb.amazonaws.com:19090/main/pgmList?channelCode={channel_code}"
+    response = session.get(url)
+
+    pgm_list = []
+    if response.status_code == 200:
+        json_data = response.json()
+        if json_data.get("message") == "SUCCESS":
+            pgm_list = json_data.get("data")
+    return pgm_list
+
+
+def get_home_uv(session, tape_code, bd_btime):
     url = f"http://vision.skstoa.com/vision/main/getHomeUv?bdBtime={bd_btime}&tapeCode={tape_code}"
     response = session.get(url)
 
     home_uv = {}
     if response.status_code == 200:
         home_uv = response.json()
-        print(home_uv)
     return home_uv
 
 
-@app.get("/vision/main/getPgmDetailInfo")
-def get_pgm_detail_info(tape_code, bd_btime):
-    new_session = requests.Session()
-    _, session = login(new_session)
-
+def get_pgm_detail_info(session, tape_code, bd_btime):
     url = f"http://vision.skstoa.com/vision/main/getPgmDetailInfo?bdBtime={bd_btime}&tapeCode={tape_code}"
     response = session.get(url)
 
-    pgm_detail_list = {}
+    pgm_detail_info = {}
     if response.status_code == 200:
         pgm_detail_list = response.json()
-        print(pgm_detail_list)
-    return pgm_detail_list
+        for pgm_detail in pgm_detail_list:
+            pgm_detail_info = pgm_detail
+    return pgm_detail_info
 
 
-@app.get("/vision/main/getWatchingAvg")
-def get_watching_avg(tape_code, d_time, e_time):
-    new_session = requests.Session()
-    _, session = login(new_session)
-
+def get_watching_avg(session, tape_code, d_time, e_time):
     url = f"http://vision.skstoa.com/vision/main/getWatchingAvg?tapeCode={tape_code}&dTime={d_time}&eTime={e_time}"
     response = session.get(url)
 
@@ -668,3 +692,293 @@ def get_watching_avg(tape_code, d_time, e_time):
     if response.status_code == 200:
         watching_avg = response.json()
     return watching_avg
+
+
+def get_make_tts(session, text):
+    url = f"{app_url}/api/tts"
+    data = {
+        "input_type": "2",
+        "text": text
+    }
+    print(data)
+    headers = {"Content-Type": "application/json"}
+    response = session.post(url, json=data, headers=headers)
+
+    result = {}
+    if response.status_code == 200:
+        result = response.json()
+    return result
+
+
+def crawl_and_analyze():
+    global data
+    on_air_pgm = None
+    prev_pgm = None
+
+    # 세션 객체 생성
+    new_session = requests.Session()
+    sleep_time_1min = 20
+    sleep_time_5min = sleep_time_1min * 1
+
+    while True:
+        login_flag, session = login(new_session)
+        sleep_time = sleep_time_1min
+
+        # 로그인 시도
+        if login_flag:
+            print("로그인 성공")
+        else:
+            print("로그인 실패")
+            time.sleep(sleep_time)
+            continue
+
+        # 채널 목록 추출
+        channel_list = get_channel_list(session)
+        if channel_list:
+            # 첫번째 채널의 방송 상품 목록 추출
+            channel_code = channel_list[0].get("channelCode")
+            pgm_list = get_pgm_list(session, channel_code)
+        else:
+            print("채널 추출 실패")
+            time.sleep(sleep_time)
+            continue
+
+        # 현재 방송 상품 추출
+        now = time.strftime('%Y%m%d%H%M')
+        for pgm in pgm_list:
+            if pgm.get("startDate") <= now <= pgm.get("endDate"):
+                on_air_pgm = pgm
+                break
+
+        # 현재 방송 상품 없는 경우
+        if not on_air_pgm:
+            print("상품을 찾을 수 없습니다.")
+            time.sleep(sleep_time)
+            continue
+
+        # 상품이 변경되었을 경우 데이터 초기화
+        if prev_pgm:
+            if prev_pgm.get("pgmName") != on_air_pgm.get("pgmName"):
+                data.clear()
+                prev_pgm = on_air_pgm
+        else:
+            prev_pgm = on_air_pgm
+
+        # print(on_air_pgm)
+
+        # 현재 방송의 실시간 데이터 추출
+        # home_uv = get_home_uv(session, on_air_pgm.get("tapeCode"), f"{on_air_pgm.get('startDate')}00")
+        # pgm_detail_info = get_pgm_detail_info(session, on_air_pgm.get("tapeCode"), f"{on_air_pgm.get('startDate')}00")
+        # print(home_uv)
+        # print(pgm_detail_info)
+        watching_avg = get_watching_avg(session,
+                                        on_air_pgm.get("tapeCode"),
+                                        f"{on_air_pgm.get('startDate')}00",
+                                        f"{on_air_pgm.get('endDate')}00",)
+
+        current_data = {
+            "viewers": watching_avg.get("sessionCount"),
+            # "주문액": watching_avg.get("orderAmt"),
+            "calls": watching_avg.get("callInAmt"),
+        }
+
+        # print(watching_avg)
+        # print(current_data)
+
+        # LLM 분석 및 코멘트 생성
+        if current_data.get("viewers") and len(current_data.get("viewers")) >= 1:
+            # data = get_mistral_7b(on_air_pgm, current_data)
+            # data = get_llama2_13b(on_air_pgm, current_data)
+            data = get_gpt4(on_air_pgm, current_data)
+            data["sessionCount"] = watching_avg.get("sessionCount")
+            # data["orderAmt"] = watching_avg.get("orderAmt")
+            data["callInAmt"] = watching_avg.get("callInAmt")
+            # print(data)
+            # if data.get("change") == "Y":
+            if data.get("change"):
+                get_make_tts(session, data.get("comment"))
+                sleep_time = sleep_time_5min
+
+        time.sleep(sleep_time)  # 60초마다 반복
+
+
+def get_mistral_7b(on_air_pgm, current_data):
+    llm = ChatOllama(temperature=0.1, model="mistral")
+
+    template = (
+        """
+            <s>[INST] You are an analyst and marketer specializing in broadcast products.
+            We analyze real-time data of broadcast products and answer them in the following form.
+            Please don't add anything other than the form.
+            form:[/INST]
+            {context}
+            </s>
+        """
+    )
+    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+    human_template = (
+        "Here is the latest data trend for the product '{pgm_name}':"
+        "{current_data}"
+        "Please analyze the trend within the last 5 minutes and make comments that induce consumers to purchase the situation only if the trend is increasing."
+        "Comment, please make a brief marketing phrase in 50 characters or less, including increasing data."
+        "If the trend is on the decline within the last 5 minutes, please answer with situation change 'N'."
+        # "Please answer in the form of json."
+    )
+    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [system_message_prompt, human_message_prompt]
+    )
+
+    pgm_name = on_air_pgm.get("pgmName")
+    context = """
+        {
+            "change": "'Y' or 'N'",
+            "comment": "comment on change situation"
+        }
+    """
+
+    dumps = json.dumps(current_data, indent=2)
+
+    chain = chat_prompt | llm | StrOutputParser()
+
+    result = chain.invoke({"current_data": dumps, "pgm_name": pgm_name, "context": context})
+    print(result)
+
+    try:
+        json_result = json.loads(result.replace("<|im_end|>", ""))
+        return json_result
+    except json.JSONDecodeError:
+        print("JSON 형식이 올바르지 않습니다.")
+        return {
+            "change": "N",
+            "comment": "JSON 형식이 올바르지 않습니다."
+        }
+
+
+def get_llama2_13b(on_air_pgm, current_data):
+    llm = ChatOllama(temperature=0.1, model="mistral")
+
+    template = (
+        """
+            당신은 방송 상품 전문 분석가이자 마케터입니다.
+            방송 상품의 실시간 데이터를 분석하는 역할을 담당합니다.
+        """
+    )
+    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+    human_template = (
+        "다음은 상품 '{pgm_name}'의 최근 데이터 추이입니다:\n"
+        "{current_data}\n\n"
+        "최근 5분 이내의 추이를 분석하고 상승중인 항목에 대해 설명해주세요.\n"
+    )
+    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [system_message_prompt, human_message_prompt]
+    )
+
+    pgm_name = on_air_pgm.get("pgmName")
+    context = """
+        {
+            "change": "데이터 변화가 크면 Y, 작으면 N",
+            "comment": "변화 상황에 대한 코멘트"
+        }
+    """
+
+    dumps = json.dumps(current_data, indent=2)
+
+    chain = chat_prompt | llm | StrOutputParser()
+
+    result = chain.invoke({"current_data": dumps, "pgm_name": pgm_name, "context": context})
+    print(result)
+
+    try:
+        json_result = json.loads(result.replace("<|im_end|>", ""))
+        return json_result
+    except json.JSONDecodeError:
+        print("JSON 형식이 올바르지 않습니다.")
+        return {
+            "change": "N",
+            "comment": "SON 형식이 올바르지 않습니다."
+        }
+
+
+def get_gpt4(on_air_pgm, current_data):
+    os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+    llm = ChatOpenAI(
+        model_name="gpt-4-turbo-preview",
+        temperature=0.1,
+    )
+
+    template = (
+        """
+            당신은 방송 상품 전문 분석가이자 마케터입니다.
+            방송 상품의 실시간 데이터를 분석해서 다음 양식으로 답변합니다.
+            양식 외에는 어떤것도 덧붙이지 마세요.
+            ------
+            {context}
+        """
+    )
+    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+    human_template = (
+        "다음은 상품 '{pgm_name}'의 최근 데이터 추이입니다:\n"
+        "{current_data}\n\n"
+        # "최근 5분 이내의 추이를 분석하고 증가 추세인 경우에만 소비자에게 상황에 대한 구매를 유도하는 코멘트를 만들어주세요.\n"
+        # "코멘트는 증가하는 데이터를 포함해서 간략한 마케팅 문구를 50자 이내로 만들어주세요.\n"
+        # "최근 5분 이내 추이가 하락 추세면 상황변화 N으로 답해주세요.\n"
+        "최근 5분 이내의 추이를 분석하고 소비자에게 상황에 대한 구매를 유도하는 코멘트를 만들어주세요.\n"
+        "코멘트는 간략한 마케팅 문구를 50자 이내로 만들어주세요.\n"
+        "json형태 양식으로 답변해주세요."
+    )
+    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [system_message_prompt, human_message_prompt]
+    )
+
+    context = """
+        {
+            "change": "데이터 변화가 크면 Y, 작으면 N",
+            "comment": "변화 상황에 대한 코멘트"
+        }
+    """
+    pgm_name = on_air_pgm.get("pgmName")
+    result = llm.invoke(
+        chat_prompt.format_prompt(
+            context=context,
+            pgm_name=pgm_name,
+            current_data=current_data
+        ).to_messages()
+    )
+
+    print(result.content)
+
+    try:
+        json_result = json.loads(result.content)
+        return json_result
+    except json.JSONDecodeError:
+        print("JSON 형식이 올바르지 않습니다.")
+        return {
+            "change": "N",
+            "comment": "JSON 형식이 올바르지 않습니다."
+        }
+
+
+@app.get("/api/analysis/{product_name}")
+async def get_analysis(product_name: str):
+    try:
+        with open(f"{product_name}_analysis.txt", "r") as f:
+            analysis = f.read()
+        return {"analysis": analysis}
+    except FileNotFoundError:
+        return {"analysis": ""}
+
+
+def run_scheduler():
+    crawl_and_analyze()
+
+
+@app.on_event("startup")
+async def startup_event():
+    Thread(target=run_scheduler).start()

@@ -1,0 +1,19 @@
+POST https://api.edenai.run/v2/audio/text_to_speech
+Content-Type: application/json
+accept: application/json
+authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiM2Y4NmM5NjYtZDQ4Mi00ZWQxLWI2OTgtMTcyYjk3ZDIyYWVhIiwidHlwZSI6ImFwaV90b2tlbiJ9.6bfRUmEqSXf3hW9BjfQhukVGKU81s53xATzHNI5Vv5Q
+
+{
+"response_as_dict": "True",
+"attributes_as_list": "False",
+"show_original_response": "False",
+"rate": 0,
+"pitch": 0,
+"volume": 100,
+"sampling_rate": 0,
+"providers": "google",
+"text": "안녕하세요",
+"language": "ko",
+"option": "FEMALE"
+}
+###
