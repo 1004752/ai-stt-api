@@ -353,14 +353,14 @@ def get_golf_course_hole(course_id: int):
         result = cursor.fetchone()
 
         if result:
-            course_name = result.get("course_name"),
-            total_hole_numbers = result.get("total_hole_numbers"),
-            total_distance = result.get("total_distance"),
-            course_level = result.get("course_level"),
-            green_level = result.get("green_level"),
-            address = result.get("address"),
-            homepage = result.get("homepage"),
-            tel_no = result.get("tel_no"),
+            course_name = result.get("course_name")
+            total_hole_numbers = result.get("total_hole_numbers")
+            total_distance = result.get("total_distance")
+            course_level = result.get("course_level")
+            green_level = result.get("green_level")
+            address = result.get("address")
+            homepage = result.get("homepage")
+            tel_no = result.get("tel_no")
 
             return {
                 "result": "success",
