@@ -1,0 +1,4 @@
+GET http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst?serviceKey=jP1o4%2BUS97qhy6qcYa%2Fun5lw7iUZdd1detGX%2BNVs2ipr%2BJKNWnWzZadi60Lja4bERpNx%2BKEFvVNe9%2B4DPoC6Yg%3D%3D&pageNo=1&numOfRows=100&dataType=JSON&base_date=20240626&base_time=1000&nx=58&ny=131
+Accept: application/json
+
+###

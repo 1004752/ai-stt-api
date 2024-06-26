@@ -3,6 +3,9 @@ import logging
 import pymysql
 import requests
 import json
+import json
+import requests
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
@@ -366,6 +369,8 @@ def get_golf_course_hole(course_id: int):
             homepage = result.get("homepage")
             tel_no = result.get("tel_no")
 
+            weather_data = get_korea_weather(58, 131)
+
             return {
                 "result": "success",
                 "course_id": course_id,
@@ -377,6 +382,7 @@ def get_golf_course_hole(course_id: int):
                 "address": address,
                 "homepage": homepage,
                 "tel_no": tel_no,
+                "weather": weather_data
             }
         else:
             return {
@@ -447,6 +453,106 @@ def get_golf_course_hole(course_id: int, hole_id: int):
             "type": "error",
             "text": "DB조회 시 에러가 발생했습니다."
         }
+
+
+def deg_to_dir(deg):
+    deg_code = {0: '북', 360: '북', 180: '남', 270: '서', 90: '동', 22.5:'북북동',
+                45: '북동', 67.5: '동북동', 112.5: '동남동', 135: '남동', 157.5: '남남동',
+                202.5: '남남서', 225: '남서', 247.5: '서남서', 292.5: '서북서', 315: '북서',
+                337.5: '북북서'}
+
+    close_dir = ''
+    min_abs = 360
+    if deg not in deg_code.keys():
+        for key in deg_code.keys():
+            if abs(key - deg) < min_abs :
+                min_abs = abs(key - deg)
+                close_dir = deg_code[key]
+    else :
+        close_dir = deg_code[deg]
+    return close_dir
+
+
+def get_korea_weather(nx: int, ny: int):
+    serviceKey = os.getenv("WEATHER_SERVICE_API_KEY")
+
+    result = {}
+
+    now = datetime.now()
+    if now.minute < 30:
+        last_half_hour = (now.replace(minute=30, second=0, microsecond=0) - timedelta(hours=1))
+    else:
+        last_half_hour = now.replace(minute=30, second=0, microsecond=0)
+
+    yyyymmdd = last_half_hour.strftime("%Y%m%d")
+    hh24mi = last_half_hour.strftime("%H%M")
+
+    base_date = yyyymmdd
+    base_time = hh24mi
+
+    result["base_date"] = base_date
+    result["base_time"] = base_time
+
+    input_d = datetime.strptime(base_date + base_time, "%Y%m%d%H%M")
+    input_datetime = datetime.strftime(input_d, "%Y%m%d%H%M")
+    input_date = input_datetime[:-4]
+    input_time = input_datetime[-4:]
+
+    url = f"http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst?serviceKey={serviceKey}" \
+          f"&numOfRows=60&pageNo=1&dataType=json&base_date={base_date}&base_time={base_time}&nx={nx}&ny={ny}"
+    response = requests.get(url, verify=False)
+    res = json.loads(response.text)
+
+    informations = dict()
+    for items in res['response']['body']['items']['item']:
+        cate = items['category']
+        fcstTime = items['fcstTime']
+        fcstValue = items['fcstValue']
+        temp = dict()
+        temp[cate] = fcstValue
+
+        if fcstTime not in informations.keys() :
+            informations[fcstTime] = dict()
+        informations[fcstTime][cate] = fcstValue
+
+    pyt_code = {0 : '강수 없음', 1 : '비', 2 : '비/눈', 3 : '눈', 5 : '빗방울', 6 : '진눈깨비', 7 : '눈날림'}
+    sky_code = {1 : '맑음', 3 : '구름많음', 4 : '흐림'}
+
+    for key, val in zip(informations.keys(), informations.values()):
+        # 맑음(1), 구름많음(3), 흐림(4)
+        if val['SKY']:
+            sky_temp = sky_code[int(val['SKY'])]
+            result["SKY"] = sky_temp
+
+        # (초단기) 없음(0), 비(1), 비/눈(2), 눈(3), 빗방울(5), 빗방울눈날림(6), 눈날림(7)
+        if val['PTY']:
+            pty_temp = pyt_code[int(val['PTY'])]
+            result["PTY"] = pty_temp
+
+            # 강수 있는 경우
+            if val['RN1'] != '강수없음':
+                # RN1 1시간 강수량
+                rn1_temp = val['RN1']
+                result["RN1"] = f"시간당 {rn1_temp}mm"
+
+        # 기온
+        if val['T1H']:
+            t1h_temp = float(val['T1H'])
+            result["T1H"] = f"{t1h_temp}℃"
+
+        # 습도
+        if val['REH']:
+            reh_temp = float(val['REH'])
+            result["REH"] = f"{reh_temp}%"
+
+        # 풍향/ 풍속
+        if val['VEC'] and val['WSD']:
+            vec_temp = deg_to_dir(float(val['VEC']))
+            wsd_temp = val['WSD']
+            result["VEC"] = vec_temp
+            result["WSD"] = f"{wsd_temp}m/s"
+        break
+    return result
 
 
 ################################################
