@@ -412,7 +412,8 @@ def get_golf_course_hole(course_id: int, hole_id: int):
                     lady_tee,
                     map_image_link,
                     map_video_link,
-                    voice_file_name
+                    voice_file_name,
+                    voice_text
              from vr_golf_course_hole
              where course_id = %s
              and hole_id = %s
@@ -428,6 +429,7 @@ def get_golf_course_hole(course_id: int, hole_id: int):
             map_image_link = result.get("map_image_link")
             map_video_link = result.get("map_video_link")
             voice_file_name = result.get("voice_file_name")
+            voice_text = result.get("voice_text")
 
             return {
                 "result": "success",
@@ -438,6 +440,7 @@ def get_golf_course_hole(course_id: int, hole_id: int):
                 "lady_tee": f"{lady_tee}m",
                 "map_image_link": map_image_link,
                 "map_video_link": map_video_link,
+                "voice_text": voice_text,
                 "voice_link": f"{os.getenv('APP_URL')}/static/{voice_file_name}",
             }
         else:
