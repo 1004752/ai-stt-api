@@ -369,7 +369,7 @@ def get_golf_course_hole(course_id: int):
             homepage = result.get("homepage")
             tel_no = result.get("tel_no")
 
-            weather_data = get_korea_weather(58, 131)
+            weather_data = get_korea_weather(62, 120)
 
             return {
                 "result": "success",
@@ -405,7 +405,11 @@ def get_golf_course_hole(course_id: int, hole_id: int):
     cursor = connection.cursor()
     try:
         cursor.execute("""
-             select back_tee,
+             select hole_type,
+                    hole_number,
+                    par_score,
+                    hdcp,
+                    back_tee,
                     champ_tee,
                     front_tee,
                     senior_tee,
@@ -425,6 +429,10 @@ def get_golf_course_hole(course_id: int, hole_id: int):
         result = cursor.fetchone()
 
         if result:
+            hole_type = result.get("hole_type")
+            hole_number = result.get("hole_number")
+            par_score = result.get("par_score")
+            hdcp = result.get("hdcp")
             back_tee = result.get("back_tee")
             champ_tee = result.get("champ_tee")
             front_tee = result.get("front_tee")
@@ -441,6 +449,10 @@ def get_golf_course_hole(course_id: int, hole_id: int):
 
             return {
                 "result": "success",
+                "hole_type": hole_type,
+                "hole_number": hole_number,
+                "par_score": par_score,
+                "hdcp": hdcp,
                 "back_tee": f"{back_tee}m",
                 "champ_tee": f"{champ_tee}m",
                 "front_tee": f"{front_tee}m",
