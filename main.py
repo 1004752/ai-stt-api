@@ -3,8 +3,6 @@ import logging
 import pymysql
 import requests
 import json
-import json
-import requests
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pymysql.cursors import DictCursor
@@ -581,6 +579,93 @@ def get_korea_weather(nx: int, ny: int):
         break
     return result
 
+
+@app.get("/api/vr/golf/{course_id}/allholecup/")
+def get_golf_course_all_holecup(course_id: int):
+    connection = db.get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("""
+             select hole_type,
+                    hole_number,
+                    par_score,
+                    hdcp,
+                    back_tee,
+                    champ_tee,
+                    front_tee,
+                    senior_tee,
+                    lady_tee,
+                    map_image_link,
+                    map_video_link,
+                    voice_file_name,
+                    voice_text,
+                    tee_box_lat,
+                    tee_box_long,
+                    hole_cup_lat,
+                    hole_cup_long
+             from vr_golf_course_hole
+             where course_id = %s
+        """, course_id)
+        rows = cursor.fetchall()
+
+        result = []
+        if rows:
+            for row in rows:
+                hole_type = row.get("hole_type")
+                hole_number = row.get("hole_number")
+                par_score = row.get("par_score")
+                hdcp = row.get("hdcp")
+                back_tee = row.get("back_tee")
+                champ_tee = row.get("champ_tee")
+                front_tee = row.get("front_tee")
+                senior_tee = row.get("senior_tee")
+                lady_tee = row.get("lady_tee")
+                map_image_link = row.get("map_image_link")
+                map_video_link = row.get("map_video_link")
+                voice_file_name = row.get("voice_file_name")
+                voice_text = row.get("voice_text")
+                tee_box_lat = row.get("tee_box_lat")
+                tee_box_long = row.get("tee_box_long")
+                hole_cup_lat = row.get("hole_cup_lat")
+                hole_cup_long = row.get("hole_cup_long")
+
+                result.append({
+                    "result": "success",
+                    "hole_type": hole_type,
+                    "hole_number": hole_number,
+                    "par_score": par_score,
+                    "hdcp": hdcp,
+                    "back_tee": f"{back_tee}m",
+                    "champ_tee": f"{champ_tee}m",
+                    "front_tee": f"{front_tee}m",
+                    "senior_tee": f"{senior_tee}m",
+                    "lady_tee": f"{lady_tee}m",
+                    "map_image_link": map_image_link,
+                    "map_video_link": map_video_link,
+                    "voice_text": voice_text,
+                    "voice_link": f"{os.getenv('APP_URL')}/static/{voice_file_name}",
+                    "tee_box_lat": tee_box_lat,
+                    "tee_box_long": tee_box_long,
+                    "hole_cup_lat": hole_cup_lat,
+                    "hole_cup_long": hole_cup_long,
+                })
+            return {
+                "result": "success",
+                "list": result
+            }
+        else:
+            return {
+                "result": "fail",
+                "type": "error",
+                "text": "홀 상세정보가 없습니다."
+            }
+    except Exception as e:
+        logger.error(f"Error get tts: {str(e)}")
+        return {
+            "result": "fail",
+            "type": "error",
+            "text": "DB조회 시 에러가 발생했습니다."
+        }
 
 ################################################
 # 내부 처리 함수
